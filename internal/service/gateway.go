@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"gateway/internal/models"
 	"net/http"
 	"net/http/httputil"
@@ -39,14 +40,45 @@ func (gw *Gateway) Start() error {
 	return nil
 }
 
-func (gw *Gateway) registerHandlers() {
-	//gw.router.Path(baseURL+"hello/").Handler(gw.handleHello()).Methods(POST, GET)
-	gw.reisterNewHandlers()
+func (gw *Gateway) hello() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		greet := &models.Greeting{Greeting: "O hi Mark!"}
+		if err := json.NewEncoder(w).Encode(greet); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		//w.WriteHeader(http.StatusOK)  superfluous response.WriteHeader call
+	}
 }
 
-func (gw *Gateway) reisterNewHandlers() {
+func (gw *Gateway) gethandlersList() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		service := &models.Service{}
+		if err := json.NewDecoder(r.Body).Decode(service); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			gw.Logger.Errorf("Failed to decode request: %w", err)
+
+			return
+		}
+		defer r.Body.Close()
+
+		registerService(service, gw, gw.registerDefaultService)
+	}
+}
+
+func (gw *Gateway) registerHandlers() {
+	gw.Router.Path("/hello").Handler(gw.hello()).Methods("GET")
+	gw.Router.Path("/handlers").Handler(gw.gethandlersList()).Methods("POST")
+	//gw.registerNewHandlers()
+}
+
+//Закоментил registerNewHandlers потому что теперь это работает без нее, но я не знаю будем ли мы
+//возвращаться к похожей модели, если это долго тут пролежит без дела то можно будет смело сносить
+/*
+func (gw *Gateway) registerNewHandlers() {
 	list := make(map[string]func(string, string) http.HandlerFunc)
-	list["user"] = gw.registerUserService
+	list["user"] = gw.registerDefaultService
 
 	// Антоха и Леха это мок на список сервисов убогий который надо будет переделать мне сейчас просто лень пиздец
 	//задачу обьясню попозже просто хочю понять что все работает
@@ -67,8 +99,9 @@ func (gw *Gateway) reisterNewHandlers() {
 		}
 	}
 }
+*/
 
-func (gw *Gateway) registerUserService(ip string, port string) http.HandlerFunc {
+func (gw *Gateway) registerDefaultService(ip string, port string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		redirectURL, err := buildURLhandler(ip, port)
 		if err != nil {
@@ -99,4 +132,6 @@ func registerService(srv *models.Service, gw *Gateway, fn func(string, string) h
 				endpoint.URL).Handler(fn(srv.IP, srv.Port)).Methods(endpoint.Methods...)
 		}
 	}
+
+	gw.Logger.Infof("Registred service. Name: %s, IP: %s, Port: %s. Endpoints: %d", srv.Name, srv.IP, srv.Port, len(srv.Endpoints))
 }
